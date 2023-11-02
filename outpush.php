@@ -1,8 +1,8 @@
 <?php
 /*
-Plugin Name: Push Notifications
+Plugin Name: Outpush Notifications
 Description: Send push notifications using Outpush API.
-Version:     1.31
+Version:     1.33
 Author:      Jahus
 Author URI:  https://jahus.net
 License:     Unlicense
@@ -11,8 +11,8 @@ License:     Unlicense
 
 function push_notifications_menu() {
     add_options_page(
-        'Push Notifications',
-        'Push Notifications',
+        'Outpush Notifications',
+        'Outpush Notifications',
         'manage_options',
         'push-notifications-settings',
         'push_notifications_settings_page'
@@ -56,7 +56,7 @@ function push_notifications_settings_page() {
                     'scheduleDate' => '', // Laissez la date vide pour utiliser la date actuelle + 15 minutes
                 );
 
-                $test_result = send_push_notification($test_notification_data, $data);
+                $test_result = send_push_notification($test_notification_data, $data, true);
 
                 echo '<div class="updated"><p>Response:</p>' . $test_result . '</div>';
             }
@@ -138,7 +138,7 @@ function trimTextRecursive($text, $maxLength = 45) {
 }
 
 
-function send_push_notification($notification_data, $config_data) {
+function send_push_notification($notification_data, $config_data, $test = false) {
     $title = $notification_data['title'];
     $meta = 'Lire l\'article';
 
@@ -178,14 +178,18 @@ function send_push_notification($notification_data, $config_data) {
 	
 	if (is_wp_error($req)) {
 		update_option('push_notification_last_result', '<p>Authentication:<br><pre>' . wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre></p>');
-        error_log('<p>Authentication:<br><code>' . $auth_response . '</code></p>');
-		return '<p>Authentication:<br><code>' . $auth_response . '</code></p>';
+        error_log('Error during authentication. See latest run.');
+		return false;
     }
 	
     if (isset($auth_data['tokens']['access']['token'])) {
         $access_token = $auth_data['tokens']['access']['token'];
 
-        $schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+5 minutes')) : $notification_data['scheduleDate'];
+		if ($test) {
+			$schedule_date = date('c', strtotime('+60 minutes'));
+		} else {
+			$schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+5 minutes')) : $notification_data['scheduleDate'];
+		}
 
         $campaign_endpoint = 'https://publisher-api.pushmaster-in.xyz/v1/campaigns/';
         $campaign_data = array(
@@ -212,8 +216,11 @@ function send_push_notification($notification_data, $config_data) {
 		$campaign_response = wp_remote_retrieve_body($req);
 
 		update_option('push_notification_last_result', '<p>Authentication:<br><pre>' .  wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br><br>Campaign:<br><pre>' . wp_unslash(json_encode(json_decode($campaign_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br><br>Used data:<br><pre>' . wp_unslash(json_encode($campaign_data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br></p>');
-		error_log('<p>Authentication:<br><code>' . $auth_response . '</code><br><br>Campaign:<br><code>' . $campaign_response . '</code><br><br>Used data:<br><code>' . var_dump($campaign_data) . '</code><br></p>');
-		return '<p>Authentication:<br><code>' . $auth_response . '</code><br><br>Campaign:<br><code>' . $campaign_response . '</code><br><br>Used data:<br><code>' . var_dump($campaign_data) . '</code><br></p>';
+		if (is_wp_error($req)) {
+			error_log('Error during campaign creation. See latest run.');
+			return false;
+		}
+		return true;
     }
 }
 
@@ -224,7 +231,7 @@ function send_push_notification_on_publish($new_status, $old_status, $post) {
 	$data = get_option('push_notifications_data');
 	
 	if (($new_status != 'publish' || $old_status == 'publish') && !$debug) {
-		return;
+		return false;
 	}
 	
     $notification_data = array(
@@ -236,7 +243,7 @@ function send_push_notification_on_publish($new_status, $old_status, $post) {
     
 	// update_option('push_notification_last_result', 'triggered ' . intval(rand(0, 100)));
     $notification_successful = send_push_notification($notification_data, $data);
-    echo $notification_successful;
+	return $notification_successful;
 }
 
 add_action('transition_post_status', 'send_push_notification_on_publish', 10, 3);
