@@ -8,7 +8,7 @@ Author URI:  https://jahus.net
 License:     Unlicense
 */
 
-// Create a menu page for plugin configuration
+
 function push_notifications_menu() {
     add_options_page(
         'Push Notifications',
@@ -23,7 +23,6 @@ add_action('admin_menu', 'push_notifications_menu');
 
 
 function push_notifications_settings_page() {
-    // Retrieve configuration data from WordPress options
     $data = get_option('push_notifications_data');
     ?>
 
@@ -186,7 +185,7 @@ function send_push_notification($notification_data, $config_data) {
     if (isset($auth_data['tokens']['access']['token'])) {
         $access_token = $auth_data['tokens']['access']['token'];
 
-        $schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+45 minutes')) : $notification_data['scheduleDate'];
+        $schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+5 minutes')) : $notification_data['scheduleDate'];
 
         $campaign_endpoint = 'https://publisher-api.pushmaster-in.xyz/v1/campaigns/';
         $campaign_data = array(
@@ -220,7 +219,7 @@ function send_push_notification($notification_data, $config_data) {
 
 
 function send_push_notification_on_publish($new_status, $old_status, $post) {
-	$debug = true;
+	$debug = false;
 	
 	$data = get_option('push_notifications_data');
 	
@@ -232,14 +231,12 @@ function send_push_notification_on_publish($new_status, $old_status, $post) {
         'url' => get_permalink($post),
         'title' => $post->post_title,
         'thumb' => get_the_post_thumbnail_url($post, 'medium'),
-        'scheduleDate' => date('c', strtotime('+45 minutes')),
+        'scheduleDate' => date('c', strtotime('+5 minutes')),
     );
     
 	// update_option('push_notification_last_result', 'triggered ' . intval(rand(0, 100)));
     $notification_successful = send_push_notification($notification_data, $data);
     echo $notification_successful;
 }
-
-// ToDo: Mettre 0 au lieu de 45 minutes
 
 add_action('transition_post_status', 'send_push_notification_on_publish', 10, 3);
