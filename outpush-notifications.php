@@ -2,12 +2,14 @@
 /*
 Plugin Name: Outpush Notifications
 Description: Send push notifications using Outpush API.
-Version:     1.33
+Version:     1.43
 Author:      Jahus
 Author URI:  https://jahus.net
 License:     Unlicense
 */
 
+define('OUTPUSH_LOGIN_ENDPOINT', 'https://publisher-api.pushmaster-in.xyz/v1/auth/login');
+define('OUTPUSH_CAMPAIGN_ENDPOINT', 'https://publisher-api.pushmaster-in.xyz/v1/campaigns/');
 
 function push_notifications_menu() {
     add_options_page(
@@ -57,8 +59,11 @@ function push_notifications_settings_page() {
                 );
 
                 $test_result = send_push_notification($test_notification_data, $data, true);
-
-                echo '<div class="updated"><p>Response:</p>' . $test_result . '</div>';
+				if ($test_result) {
+					echo '<div class="updated"><b>Test successful</b></div>';
+				} else {
+					echo '<div class="updated"><b>Error during test</b></div>';
+				}
             }
 			$last_result = get_option('push_notification_last_result');
             ?>
@@ -94,7 +99,11 @@ function push_notifications_settings_page() {
                         <input type="text" name="favicon" value="<?php echo esc_attr($data['favicon']); ?>">
                     </td>
                 </tr>
-                <!-- Champs de test -->
+			</table>
+			<input type="submit" name="push_notifications_submit" class="button-primary" value="Save Settings">
+			<hr/>
+			<table class="form-table">
+                <p>Test and debug</p>
                 <tr>
                     <th scope="row">Test URL:</th>
                     <td>
@@ -114,10 +123,9 @@ function push_notifications_settings_page() {
                     </td>
                 </tr>
             </table>
-            <input type="submit" name="push_notifications_submit" class="button-primary" value="Save Settings">
             <input type="submit" name="push_notifications_test" class="button" value="Test Notification">
 			<hr/>
-			<p>Last Notification Result:</p>
+			<p>Latest Notification Result:</p>
 			<p><?php echo $last_result; ?></p>
         </form>
     </div>
@@ -127,10 +135,10 @@ function push_notifications_settings_page() {
 
 function trimTextRecursive($text, $maxLength = 45) {
 	$text = trim($text);
-    if (mb_strlen($text) > ($maxLength)) {
-        $lastSpacePos = mb_strrpos($text, ' ');
+    if (strlen($text) > ($maxLength)) {
+        $lastSpacePos = strrpos($text, ' ');
         if ($lastSpacePos) {
-            $text = mb_substr($text, 0, $lastSpacePos);
+            $text = substr($text, 0, $lastSpacePos);
             $text = trimTextRecursive($text, $maxLength);
         }
     }
@@ -139,22 +147,22 @@ function trimTextRecursive($text, $maxLength = 45) {
 
 
 function send_push_notification($notification_data, $config_data, $test = false) {
-    $title = $notification_data['title'];
+    $title = trim($notification_data['title']);
     $meta = 'Lire l\'article';
 
     if (strlen($title) <= 45) {
         $meta = 'Lire l\'article';
     } else {
-        if (mb_strpos($title, ':')) {
-            list($title, $meta) = explode(':', $title, 2);
-			if (strlen($title) > 43) {
-				$title = trimTextRecursive($title, 43) . '...';
+        if (strpos($title, ':')) {
+            list($title, $meta) = array_map('trim', explode(':', $title, 2));
+			if (strlen($title) > 42) {
+				$title = trimTextRecursive($title, 42) . '...';
 			}
-			if ($strlen($meta) > 43) {
-				$meta = trimTextRecursive($meta, 43) . '...';
+			if (strlen($meta) > 42) {
+				$meta = trimTextRecursive($meta, 42) . '...';
 			}
         } else {
-            $title = trimTextRecursive($title, 43) . '...';
+            $title = trimTextRecursive($title, 42) . '...';
             $meta = 'Lire l\'article';
         }
     }
@@ -162,7 +170,7 @@ function send_push_notification($notification_data, $config_data, $test = false)
     $notification_data['title'] = $title;
     $notification_data['meta'] = $meta;
 
-    $login_endpoint = 'https://publisher-api.pushmaster-in.xyz/v1/auth/login';
+    $login_endpoint = OUTPUSH_LOGIN_ENDPOINT;
     $login_data = array(
         'email' => $config_data['email'],
         'password' => $config_data['password'],
@@ -177,35 +185,32 @@ function send_push_notification($notification_data, $config_data, $test = false)
     $auth_data = json_decode($auth_response, true);
 	
 	if (is_wp_error($req)) {
-		update_option('push_notification_last_result', '<p>Authentication:<br><pre>' . wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre></p>');
+		update_option('push_notification_last_result', '<p>Error during authentication:<br><pre>' . wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre></p>');
         error_log('Error during authentication. See latest run.');
 		return false;
     }
 	
     if (isset($auth_data['tokens']['access']['token'])) {
         $access_token = $auth_data['tokens']['access']['token'];
-
+		$schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+5 minutes')) : $notification_data['scheduleDate'];
 		if ($test) {
 			$schedule_date = date('c', strtotime('+60 minutes'));
-		} else {
-			$schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+5 minutes')) : $notification_data['scheduleDate'];
 		}
-
-        $campaign_endpoint = 'https://publisher-api.pushmaster-in.xyz/v1/campaigns/';
+		
         $campaign_data = array(
             'websiteUrl' => $config_data['website'],
             'scheduleDate' => $schedule_date,
             'campaignName' => $config_data['name'],
             'notification' => array(
-                'title' => substr($notification_data['title'], 0, 45),
-                'body' => substr($notification_data['meta'], 0, 45),
+                'title' => wp_unslash(substr($notification_data['title'], 0, 45)),
+                'body' => wp_unslash(substr($notification_data['meta'], 0, 45)),
                 'url' => $notification_data['url'],
                 'imageUrl' => $notification_data['thumb'],
                 'iconUrl' => $config_data['favicon'],
             ),
         );
 
-        $req = wp_safe_remote_post($campaign_endpoint, array(
+        $req = wp_safe_remote_post(OUTPUSH_CAMPAIGN_ENDPOINT, array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $access_token,
                 'Content-Type' => 'application/json',
@@ -214,9 +219,18 @@ function send_push_notification($notification_data, $config_data, $test = false)
         ));
 		
 		$campaign_response = wp_remote_retrieve_body($req);
-
-		update_option('push_notification_last_result', '<p>Authentication:<br><pre>' .  wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br><br>Campaign:<br><pre>' . wp_unslash(json_encode(json_decode($campaign_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br><br>Used data:<br><pre>' . wp_unslash(json_encode($campaign_data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br></p>');
+		$campaign_response_text = '--- BEGIN RESPONSE ---' . $campaign_response . '--- END RESPONSE ---';
+		$campaign_response_decoded = json_decode($campaign_response, true);
+		if ($campaign_response_decoded != null) {
+			$campaign_response_text = json_encode($campaign_response_decoded, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+		}
+		
+		update_option('push_notification_last_result', '<p>Authentication:<br><pre>' .  wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br><br>Campaign:<br><pre>' . wp_unslash($campaign_response_text) . '</pre><br><br>Used data:<br><pre>' . wp_unslash(json_encode($campaign_data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br></p>');
 		if (is_wp_error($req)) {
+			error_log('Error during campaign creation. See latest run.');
+			return false;
+		}
+		if ($campaign_response_decoded == null) {
 			error_log('Error during campaign creation. See latest run.');
 			return false;
 		}
@@ -241,8 +255,7 @@ function send_push_notification_on_publish($new_status, $old_status, $post) {
         'scheduleDate' => date('c', strtotime('+5 minutes')),
     );
     
-	// update_option('push_notification_last_result', 'triggered ' . intval(rand(0, 100)));
-    $notification_successful = send_push_notification($notification_data, $data);
+    $notification_successful = send_push_notification($notification_data, $data, $debug);
 	return $notification_successful;
 }
 
