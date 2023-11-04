@@ -2,7 +2,7 @@
 /*
 Plugin Name: Outpush Notifications
 Description: Send push notifications using Outpush API.
-Version:     1.43
+Version:     1.43.1
 Author:      Jahus
 Author URI:  https://jahus.net
 License:     Unlicense
@@ -251,7 +251,7 @@ function send_push_notification_on_publish($new_status, $old_status, $post) {
     $notification_data = array(
         'url' => get_permalink($post),
         'title' => $post->post_title,
-        'thumb' => get_the_post_thumbnail_url($post, 'medium'),
+        'thumb' => get_the_post_thumbnail_url($post), // use , 'medium' if needed
         'scheduleDate' => date('c', strtotime('+5 minutes')),
     );
     
