@@ -153,18 +153,8 @@ function send_push_notification($notification_data, $config_data, $test = false)
     if (strlen($title) <= 45) {
         $meta = 'Lire l\'article';
     } else {
-        if (strpos($title, ':')) {
-            list($title, $meta) = array_map('trim', explode(':', $title, 2));
-			if (strlen($title) > 42) {
-				$title = trimTextRecursive($title, 42) . '...';
-			}
-			if (strlen($meta) > 42) {
-				$meta = trimTextRecursive($meta, 42) . '...';
-			}
-        } else {
-            $title = trimTextRecursive($title, 42) . '...';
-            $meta = 'Lire l\'article';
-        }
+		$title = trimTextRecursive($title, 42) . '...';
+		$meta = 'Lire l\'article';
     }
 
     $notification_data['title'] = $title;
