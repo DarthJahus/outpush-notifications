@@ -2,7 +2,7 @@
 /*
 Plugin Name: Outpush Notifications
 Description: Send push notifications using Outpush API.
-Version:     1.43.1
+Version:     1.44.1
 Author:      Jahus
 Author URI:  https://jahus.net
 License:     Unlicense
@@ -36,11 +36,13 @@ function push_notifications_settings_page() {
             <?php
             if (isset($_POST['push_notifications_submit'])) {
                 $data = array(
-                    'website' => sanitize_text_field($_POST['website']),
+                    'website1' => sanitize_text_field($_POST['website1']),
+					'website2' => sanitize_text_field($_POST['website2']),
                     'email' => sanitize_email($_POST['email']),
                     'password' => sanitize_text_field($_POST['password']),
                     'name' => sanitize_text_field($_POST['name']),
-                    'favicon' => esc_url($_POST['favicon']),
+                    'favicon1' => esc_url($_POST['favicon1']),
+					'favicon2' => esc_url($_POST['favicon2']),
                 );
                 update_option('push_notifications_data', $data);
                 echo '<div class="updated"><p>Settings saved.</p></div>';
@@ -70,9 +72,27 @@ function push_notifications_settings_page() {
 
             <table class="form-table">
                 <tr>
-                    <th scope="row">Website URL:</th>
+                    <th scope="row">Website 1 URL:</th>
                     <td>
-                        <input type="text" name="website" value="<?php echo esc_attr($data['website']); ?>" required>
+                        <input type="text" name="website1" value="<?php echo esc_attr($data['website1']); ?>" required>
+                    </td>
+                </tr>
+				<tr>
+                    <th scope="row">Favicon 1 URL:</th>
+                    <td>
+                        <input type="text" name="favicon1" value="<?php echo esc_attr($data['favicon1']); ?>">
+                    </td>
+                </tr>
+				<tr>
+                    <th scope="row">Website 2 URL:</th>
+                    <td>
+                        <input type="text" name="website2" value="<?php echo esc_attr($data['website2']); ?>">
+                    </td>
+                </tr>
+				<tr>
+                    <th scope="row">Favicon 2 URL:</th>
+                    <td>
+                        <input type="text" name="favicon2" value="<?php echo esc_attr($data['favicon2']); ?>">
                     </td>
                 </tr>
                 <tr>
@@ -91,12 +111,6 @@ function push_notifications_settings_page() {
                     <th scope="row">Campaign Name:</th>
                     <td>
                         <input type="text" name="name" value="<?php echo esc_attr($data['name']); ?>" required>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row">Favicon URL:</th>
-                    <td>
-                        <input type="text" name="favicon" value="<?php echo esc_attr($data['favicon']); ?>">
                     </td>
                 </tr>
 			</table>
@@ -146,6 +160,54 @@ function trimTextRecursive($text, $maxLength = 45) {
 }
 
 
+function create_and_send_campaign($website_url, $favicon_url, $campaign_name, $notification_data, $access_token, $test, $auth_response) {
+    $schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+5 minutes')) : $notification_data['scheduleDate'];
+	if ($test) {
+		$schedule_date = date('c', strtotime('+60 minutes'));
+	}
+	
+    $campaign_data = array(
+        'websiteUrl' => $website_url,
+        'scheduleDate' => $schedule_date,
+        'campaignName' => $campaign_name,
+        'notification' => array(
+            'title' => wp_unslash(substr($notification_data['title'], 0, 45)),
+            'body' => wp_unslash(substr($notification_data['meta'], 0, 45)),
+            'url' => $notification_data['url'],
+            'imageUrl' => $notification_data['thumb'],
+            'iconUrl' => $favicon_url,
+        ),
+    );
+
+    $req = wp_safe_remote_post(OUTPUSH_CAMPAIGN_ENDPOINT, array(
+        'headers' => array(
+            'Authorization' => 'Bearer ' . $access_token,
+            'Content-Type' => 'application/json',
+        ),
+        'body' => json_encode($campaign_data),
+    ));
+
+	$campaign_response = wp_remote_retrieve_body($req);
+	$campaign_response_text = '--- BEGIN RESPONSE ---' . $campaign_response . '--- END RESPONSE ---';
+	$campaign_response_decoded = json_decode($campaign_response, true);
+	if ($campaign_response_decoded != null) {
+		$campaign_response_text = json_encode($campaign_response_decoded, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+	}
+	
+	update_option('push_notification_last_result', '<p>Authentication:<br><pre>' .  wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br><br>Campaign:<br><pre>' . wp_unslash($campaign_response_text) . '</pre><br><br>Used data:<br><pre>' . wp_unslash(json_encode($campaign_data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br></p>');
+	if (is_wp_error($req)) {
+		error_log('Error during campaign creation. See latest run.');
+		return false;
+	}
+	if ($campaign_response_decoded == null) {
+		error_log('Error during campaign creation. See latest run.');
+		return false;
+	}
+	return true;
+
+}
+
+
 function send_push_notification($notification_data, $config_data, $test = false) {
     $title = trim($notification_data['title']);
     $meta = 'Lire l\'article';
@@ -192,50 +254,16 @@ function send_push_notification($notification_data, $config_data, $test = false)
 	
     if (isset($auth_data['tokens']['access']['token'])) {
         $access_token = $auth_data['tokens']['access']['token'];
-		$schedule_date = empty($notification_data['scheduleDate']) ? date('c', strtotime('+5 minutes')) : $notification_data['scheduleDate'];
-		if ($test) {
-			$schedule_date = date('c', strtotime('+60 minutes'));
-		}
 		
-        $campaign_data = array(
-            'websiteUrl' => $config_data['website'],
-            'scheduleDate' => $schedule_date,
-            'campaignName' => $config_data['name'],
-            'notification' => array(
-                'title' => wp_unslash(substr($notification_data['title'], 0, 45)),
-                'body' => wp_unslash(substr($notification_data['meta'], 0, 45)),
-                'url' => $notification_data['url'],
-                'imageUrl' => $notification_data['thumb'],
-                'iconUrl' => $config_data['favicon'],
-            ),
-        );
-
-        $req = wp_safe_remote_post(OUTPUSH_CAMPAIGN_ENDPOINT, array(
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $access_token,
-                'Content-Type' => 'application/json',
-            ),
-            'body' => json_encode($campaign_data),
-        ));
-		
-		$campaign_response = wp_remote_retrieve_body($req);
-		$campaign_response_text = '--- BEGIN RESPONSE ---' . $campaign_response . '--- END RESPONSE ---';
-		$campaign_response_decoded = json_decode($campaign_response, true);
-		if ($campaign_response_decoded != null) {
-			$campaign_response_text = json_encode($campaign_response_decoded, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+		$result1 = create_and_send_campaign($config_data['website1'], $config_data['favicon1'], $config_data['name'], $notification_data, $access_token, $test, $auth_response);
+		if (!empty($config_data['website2']) && !empty($config_data['favicon2'])) {
+			$result2 = create_and_send_campaign($config_data['website2'], $config_data['favicon2'], $config_data['name'], $notification_data, $access_token, $test, $auth_response);
+			return $result1 && $result2;
 		}
-		
-		update_option('push_notification_last_result', '<p>Authentication:<br><pre>' .  wp_unslash(json_encode(json_decode($auth_response, true), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br><br>Campaign:<br><pre>' . wp_unslash($campaign_response_text) . '</pre><br><br>Used data:<br><pre>' . wp_unslash(json_encode($campaign_data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) . '</pre><br></p>');
-		if (is_wp_error($req)) {
-			error_log('Error during campaign creation. See latest run.');
-			return false;
-		}
-		if ($campaign_response_decoded == null) {
-			error_log('Error during campaign creation. See latest run.');
-			return false;
-		}
-		return true;
+		return $result1;
     }
+	
+	return false;
 }
 
 
